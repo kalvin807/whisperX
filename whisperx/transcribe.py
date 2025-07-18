@@ -183,7 +183,7 @@ def transcribe_task(args: dict, parser: argparse.ArgumentParser):
                         result["language"], device
                     )
                 print(">>Performing alignment...")
-                result: AlignedTranscriptionResult = align(
+                aligned_result: AlignedTranscriptionResult = align(
                     result["segments"],
                     align_model,
                     align_metadata,
@@ -193,6 +193,8 @@ def transcribe_task(args: dict, parser: argparse.ArgumentParser):
                     return_char_alignments=return_char_alignments,
                     print_progress=print_progress,
                 )
+                # Update the original result with aligned segments while preserving other fields
+                result.update(aligned_result)
 
             results.append((result, audio_path))
 

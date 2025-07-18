@@ -231,7 +231,15 @@ def align(
             "text": text,
             "words": [],
             "chars": None,
+            "avg_log_prob": None,
+            "no_speech_prob": None,
         }
+
+        # Preserve additional fields from the original segment
+        if "avg_log_prob" in segment:
+            aligned_seg["avg_log_prob"] = segment["avg_log_prob"]
+        if "no_speech_prob" in segment:
+            aligned_seg["no_speech_prob"] = segment["no_speech_prob"]
 
         if return_char_alignments:
             aligned_seg["chars"] = []
@@ -410,6 +418,14 @@ def align(
             ["start", "end"], as_index=False
         ).agg(agg_dict)
         aligned_subsegments = aligned_subsegments.to_dict("records")
+        
+        # Add preserved fields to each subsegment
+        for subseg in aligned_subsegments:
+            if "avg_log_prob" in segment:
+                subseg["avg_log_prob"] = segment["avg_log_prob"]
+            if "no_speech_prob" in segment:
+                subseg["no_speech_prob"] = segment["no_speech_prob"]
+        
         aligned_segments += aligned_subsegments
 
     # create word_segments list
