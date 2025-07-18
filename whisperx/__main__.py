@@ -4,8 +4,13 @@ import platform
 
 import torch
 
-from whisperx.utils import (LANGUAGES, TO_LANGUAGE_CODE, optional_float,
-                            optional_int, str2bool)
+from whisperx.utils import (
+    LANGUAGES,
+    TO_LANGUAGE_CODE,
+    optional_float,
+    optional_int,
+    str2bool,
+)
 
 
 def cli():
