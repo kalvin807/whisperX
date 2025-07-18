@@ -70,20 +70,39 @@ class WhisperModel(faster_whisper.WhisperModel):
             max_length=self.max_length,
             suppress_blank=options.suppress_blank,
             suppress_tokens=options.suppress_tokens,
+            return_scores=True,
+            return_no_speech_prob=True,
         )
 
-        tokens_batch = [x.sequences_ids[0] for x in result]
+        # * Differ from original whisperx implementation,
+        # we are taking the average log probability of the token
+        tokens_batch = [
+            {
+                "tokens": x.sequences_ids[0],
+                "avg_log_prob": x.scores[0]
+                * (len(x.sequences_ids[0]) ** (options.length_penalty - 1)),
+                "no_speech_prob": x.no_speech_prob,
+            }
+            for x in result
+        ]
 
-        def decode_batch(tokens: List[List[int]]) -> str:
-            res = []
-            for tk in tokens:
-                res.append([token for token in tk if token < tokenizer.eot])
-            # text_tokens = [token for token in tokens if token < self.eot]
-            return tokenizer.tokenizer.decode_batch(res)
+        def decode_batch(A):
+            filtered_tokens = [
+                [token for token in x["tokens"] if token < tokenizer.eot] for x in A
+            ]
+            decoded_texts = tokenizer.tokenizer.decode_batch(filtered_tokens)
 
-        text = decode_batch(tokens_batch)
+            return [
+                {
+                    "text": text,
+                    "avg_log_prob": x["avg_log_prob"],
+                    "no_speech_prob": x["no_speech_prob"],
+                }
+                for x, text in zip(A, decoded_texts)
+            ]
 
-        return text
+        result = decode_batch(tokens_batch)
+        return result
 
     def encode(self, features: np.ndarray) -> ctranslate2.StorageView:
         # When the model is running on multiple GPUs, the encoder output should be moved
@@ -167,7 +186,7 @@ class FasterWhisperPipeline(Pipeline):
         outputs = self.model.generate_segment_batched(
             model_inputs["inputs"], self.tokenizer, self.options
         )
-        return {"text": outputs}
+        return {"outputs": outputs}
 
     def postprocess(self, model_outputs):
         return model_outputs
@@ -271,6 +290,7 @@ class FasterWhisperPipeline(Pipeline):
         segments: List[SingleSegment] = []
         batch_size = batch_size or self._batch_size
         total_segments = len(vad_segments)
+        segment_idx = 0
         for idx, out in enumerate(
             self.__call__(
                 data(audio, vad_segments),
@@ -284,20 +304,41 @@ class FasterWhisperPipeline(Pipeline):
                     base_progress / 2 if combined_progress else base_progress
                 )
                 print(f"Progress: {percent_complete:.2f}%...")
-            text = out["text"]
-            if batch_size in [0, 1, None]:
-                text = text[0]
-            if verbose:
-                print(
-                    f"Transcript: [{round(vad_segments[idx]['start'], 3)} --> {round(vad_segments[idx]['end'], 3)}] {text}"
+
+            outputs = out["outputs"]
+            
+            # Check if outputs is a list or a single dict
+            if isinstance(outputs, list):
+                # Batch processing - outputs is a list of dicts
+                outputs_to_process = outputs
+            else:
+                # Single processing - outputs is a dict
+                outputs_to_process = [outputs]
+            
+            # Process each output
+            for i, output in enumerate(outputs_to_process):
+                if segment_idx >= total_segments:
+                    break
+
+                text = output["text"]
+                avg_log_prob = output["avg_log_prob"]
+                no_speech_prob = output["no_speech_prob"]
+
+                if verbose:
+                    print(
+                        f"Transcript: [{round(vad_segments[segment_idx]['start'], 3)} --> {round(vad_segments[segment_idx]['end'], 3)}] {text}"
+                    )
+
+                segments.append(
+                    {
+                        "text": text,
+                        "start": round(vad_segments[segment_idx]["start"], 3),
+                        "end": round(vad_segments[segment_idx]["end"], 3),
+                        "avg_log_prob": avg_log_prob,
+                        "no_speech_prob": no_speech_prob,
+                    }
                 )
-            segments.append(
-                {
-                    "text": text,
-                    "start": round(vad_segments[idx]["start"], 3),
-                    "end": round(vad_segments[idx]["end"], 3),
-                }
-            )
+                segment_idx += 1
 
         # revert the tokenizer if multilingual inference is enabled
         if self.preset_language is None:

@@ -1,4 +1,4 @@
-from typing import TypedDict, Optional, List, Tuple
+from typing import List, Optional, Tuple, TypedDict
 
 
 class SingleWordSegment(TypedDict):
@@ -31,6 +31,8 @@ class SingleSegment(TypedDict):
     start: float
     end: float
     text: str
+    avg_log_prob: float
+    no_speech_prob: float
 
 
 class SegmentData(TypedDict):
